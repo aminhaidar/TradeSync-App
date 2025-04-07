@@ -43,13 +43,30 @@ export class DataProcessor {
   public addMessage(type: 'quote' | 'trade' | 'bar', data: MarketData | Trade | Bar): void {
     if (this.messageQueue.length >= this.config.maxQueueSize) {
       this.logger.warn('Message queue full, dropping oldest messages');
-      this.messageQueue = this.messageQueue.slice(-this.config.maxQueueSize);
+      this.messageQueue = this.messageQueue.slice(-(this.config.maxQueueSize - 1));
     }
 
     if (this.validateMessage(type, data)) {
       this.messageQueue.push({ type, data });
       this.lastBatchTime = new Date();
     }
+  }
+
+  public addData(data: MarketData | Trade | Bar): void {
+    let type: 'quote' | 'trade' | 'bar';
+    
+    if ('bidPrice' in data && 'askPrice' in data) {
+      type = 'quote';
+    } else if ('price' in data && 'size' in data) {
+      type = 'trade';
+    } else if ('open' in data && 'close' in data) {
+      type = 'bar';
+    } else {
+      this.logger.warn('Unknown data type:', data);
+      return;
+    }
+
+    this.addMessage(type, data);
   }
 
   public hasMessages(): boolean {
@@ -85,6 +102,7 @@ export class DataProcessor {
         case 'bar':
           return this.validateBar(data as Bar);
         default:
+          this.logger.warn(`Unknown message type: ${type}`);
           return false;
       }
     } catch (error) {
@@ -154,6 +172,11 @@ export class DataProcessor {
       return false;
     }
 
+    // Validate high/low relationship
+    if (bar.high < bar.low) {
+      return false;
+    }
+
     return true;
   }
 
@@ -188,5 +211,6 @@ export class DataProcessor {
       this.batchTimer = null;
     }
     this.messageQueue = [];
+    this.logger.info('Cleaning up DataProcessor resources');
   }
 } 

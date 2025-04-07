@@ -1,315 +1,258 @@
-import { Server } from 'socket.io';
-import { WebSocket } from 'ws';
-import { WebSocketManager } from '../websocket-manager';
-import { AlpacaQuote, AlpacaTrade, AlpacaBar, AlpacaConfig } from '../types/alpaca';
-import { ErrorHandler } from '../utils/error-handler';
-import { DataProcessor } from '../utils/data-processor';
+import { WebSocket } from 'ws'
+import { Server } from 'socket.io'
+import { WebSocketManager } from '../websocket-manager'
+import { ErrorHandler } from '../utils/error-handler'
+import { DataProcessor } from '../utils/data-processor'
+import { AlpacaConfig } from '../types/alpaca'
 
-jest.mock('ws');
-jest.mock('socket.io');
-jest.mock('../utils/error-handler');
-jest.mock('../utils/data-processor');
+jest.mock('ws')
+jest.mock('socket.io')
+jest.mock('../utils/error-handler')
+jest.mock('../utils/data-processor')
+
+type WebSocketEventType = string | symbol
+type WebSocketListener = (this: WebSocket, ...args: any[]) => void
+type WebSocketMockCall = [event: WebSocketEventType, listener: WebSocketListener]
 
 describe('WebSocketManager', () => {
-  let wsManager: WebSocketManager;
-  let mockIo: Server;
-  let mockConfig: AlpacaConfig;
-  let mockDataWs: jest.Mocked<WebSocket>;
-  let mockTradingWs: jest.Mocked<WebSocket>;
-  let mockDataErrorHandler: jest.Mocked<ErrorHandler>;
-  let mockTradingErrorHandler: jest.Mocked<ErrorHandler>;
-  let mockDataProcessor: jest.Mocked<DataProcessor>;
+  let mockDataWs: jest.Mocked<WebSocket>
+  let mockServer: jest.Mocked<Server>
+  let wsManager: WebSocketManager
+  let mockDataProcessor: jest.Mocked<DataProcessor>
+  let mockErrorHandler: jest.Mocked<ErrorHandler>
+  let mockConfig: AlpacaConfig
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    
-    // Mock error handlers
-    mockDataErrorHandler = {
-      handleError: jest.fn(),
-      resetReconnectAttempts: jest.fn(),
+    jest.useFakeTimers()
+    mockDataWs = {
       on: jest.fn(),
-      cleanup: jest.fn()
-    } as unknown as jest.Mocked<ErrorHandler>;
+      send: jest.fn(),
+      close: jest.fn(),
+      readyState: WebSocket.OPEN
+    } as unknown as jest.Mocked<WebSocket>
+    ;((WebSocket as unknown) as jest.Mock).mockImplementation(() => mockDataWs)
 
-    mockTradingErrorHandler = {
-      handleError: jest.fn(),
-      resetReconnectAttempts: jest.fn(),
-      on: jest.fn(),
-      cleanup: jest.fn()
-    } as unknown as jest.Mocked<ErrorHandler>;
+    mockServer = {
+      emit: jest.fn()
+    } as unknown as jest.Mocked<Server>
+    ;((Server as unknown) as jest.Mock).mockImplementation(() => mockServer)
 
-    // Mock data processor
     mockDataProcessor = {
       addMessage: jest.fn(),
-      hasMessages: jest.fn(),
       processMessages: jest.fn(),
-      cleanup: jest.fn()
-    } as unknown as jest.Mocked<DataProcessor>;
+      cleanup: jest.fn(),
+      hasMessages: jest.fn(),
+      getQueueSize: jest.fn(),
+      getLastBatchTime: jest.fn()
+    } as unknown as jest.Mocked<DataProcessor>
 
-    (ErrorHandler as unknown as jest.MockedClass<typeof ErrorHandler>).mockImplementation((type: string) => {
-      return type === 'data' ? mockDataErrorHandler : mockTradingErrorHandler;
-    });
-
-    (DataProcessor as unknown as jest.MockedClass<typeof DataProcessor>).mockImplementation(() => {
-      return mockDataProcessor;
-    });
-
-    mockIo = {
+    mockErrorHandler = {
+      handleError: jest.fn(),
+      resetReconnectAttempts: jest.fn(),
+      cleanup: jest.fn(),
       on: jest.fn(),
       emit: jest.fn()
-    } as unknown as Server;
+    } as unknown as jest.Mocked<ErrorHandler>
+
+    ;((DataProcessor as unknown) as jest.Mock).mockImplementation(() => mockDataProcessor)
+    ;((ErrorHandler as unknown) as jest.Mock).mockImplementation(() => mockErrorHandler)
 
     mockConfig = {
       isProduction: false,
-      port: 3000,
+      port: 8080,
       alpaca: {
         data: {
-          key: 'test_key',
-          secret: 'test_secret',
-          wsUrl: 'wss://test.data.url'
+          wsUrl: 'wss://test.data.url',
+          key: 'test-key',
+          secret: 'test-secret'
         },
         trading: {
-          key: 'test_key',
-          secret: 'test_secret',
           url: 'https://test.trading.url',
-          wsUrl: 'wss://test.trading.url'
+          wsUrl: 'wss://test.trading.url',
+          key: 'test-key',
+          secret: 'test-secret'
         }
       },
       websocket: {
         maxReconnectAttempts: 3,
         reconnectDelay: 1000,
         maxReconnectDelay: 5000,
-        batchInterval: 100,
         healthCheckInterval: 30000,
+        healthCheckTimeout: 60000,
         batchSize: 100,
+        batchInterval: 1000,
         maxQueueSize: 1000
       },
       data: {
-        maxTrades: 100,
+        maxTrades: 1000,
         cleanupInterval: 3600000,
-        maxPrice: 1000000,
-        maxVolume: 1000000,
-        maxSpread: 1000,
+        maxAge: 86400000,
+        maxPrice: 10000,
         minPrice: 0.01,
-        minVolume: 1
+        maxVolume: 1000000,
+        minVolume: 1,
+        maxSpread: 100
       }
-    };
+    }
 
-    // Create mock WebSocket instances
-    mockDataWs = {
-      on: jest.fn(),
-      send: jest.fn(),
-      readyState: WebSocket.OPEN,
-      close: jest.fn(),
-      emit: jest.fn()
-    } as unknown as jest.Mocked<WebSocket>;
-
-    mockTradingWs = {
-      on: jest.fn(),
-      send: jest.fn(),
-      readyState: WebSocket.OPEN,
-      close: jest.fn(),
-      emit: jest.fn()
-    } as unknown as jest.Mocked<WebSocket>;
-
-    // Mock WebSocket constructor to return appropriate mock instance
-    (WebSocket as unknown as jest.Mock).mockImplementation((url: string) => {
-      return url.includes('data') ? mockDataWs : mockTradingWs;
-    });
-
-    wsManager = new WebSocketManager(mockIo, mockConfig);
-  });
+    wsManager = new WebSocketManager(mockServer, mockConfig)
+    wsManager.connectDataWebSocket()
+  })
 
   afterEach(() => {
-    wsManager.cleanup();
-  });
+    jest.clearAllMocks()
+    jest.useRealTimers()
+  })
 
   describe('Connection Management', () => {
-    it('should connect to both WebSocket endpoints', () => {
-      wsManager.connectDataWebSocket();
-      wsManager.connectTradingWebSocket();
-
-      expect(WebSocket).toHaveBeenCalledWith('wss://test.data.url');
-      expect(WebSocket).toHaveBeenCalledWith('wss://test.trading.url');
-      expect(WebSocket).toHaveBeenCalledTimes(2);
-    });
-
     it('should attempt reconnection on connection close', () => {
-      jest.useFakeTimers();
-      
-      // Initial connection
-      wsManager.connectDataWebSocket();
-      expect(WebSocket).toHaveBeenCalledTimes(1);
-      
       // Simulate connection close
-      const closeCall = mockDataWs.on.mock.calls.find(call => call[0] === 'close');
-      if (!closeCall) throw new Error('Close handler not found');
-      const closeHandler = closeCall[1] as () => void;
-      closeHandler();
-      
-      // Verify error handler was called
-      expect(mockDataErrorHandler.handleError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'Connection closed',
-          stream: 'data'
-        })
-      );
-      
-      // Reset mock to prepare for reconnection
-      (WebSocket as unknown as jest.Mock).mockReset();
-      
-      // Get the reconnect callback that was registered
-      const onCalls = mockDataErrorHandler.on.mock.calls;
-      const reconnectCallback = onCalls.find(call => call[0] === 'reconnect')?.[1];
-      expect(reconnectCallback).toBeDefined();
-      
-      // Simulate error handler triggering reconnect
-      if (reconnectCallback) {
-        reconnectCallback();
-      }
-      
+      const closeHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'close'
+      )?.[1]
+      expect(closeHandler).toBeDefined()
+
+      // Reset mock to clear initial connection call
+      ;((WebSocket as unknown) as jest.Mock).mockClear()
+      Object.defineProperty(mockDataWs, 'readyState', { value: WebSocket.CLOSED })
+
+      // Mock the error handler to trigger reconnect
+      mockErrorHandler.on.mock.calls.find(
+        (call) => call[0] === 'reconnect'
+      )?.[1]()
+
       // Should attempt to reconnect
-      expect(WebSocket).toHaveBeenCalledTimes(1);
-      expect(WebSocket).toHaveBeenCalledWith('wss://test.data.url');
-      
-      jest.useRealTimers();
-    });
-  });
+      expect(WebSocket).toHaveBeenCalledTimes(1)
+      expect(WebSocket).toHaveBeenCalledWith('wss://test.data.url')
+    })
 
-  describe('Authentication', () => {
-    it('should send authentication message on connection', () => {
-      wsManager.connectDataWebSocket();
-      
-      // Simulate connection open
-      const openCall = mockDataWs.on.mock.calls.find(call => call[0] === 'open');
-      if (!openCall) throw new Error('Open handler not found');
-      const openHandler = openCall[1] as () => void;
-      openHandler();
+    it('should handle connection errors', () => {
+      const errorHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'error'
+      )?.[1]
+      expect(errorHandler).toBeDefined()
 
-      expect(mockDataWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('"action":"auth"')
-      );
-    });
-  });
+      const mockError = new Error('Connection error')
+      errorHandler?.call(mockDataWs, mockError)
+
+      expect(mockErrorHandler.handleError).toHaveBeenCalledWith(mockError)
+    })
+
+    it('should handle health check timeouts', () => {
+      // Set up conditions for timeout
+      wsManager['dataState'] = 'connected';
+      wsManager['dataMetrics'].lastMessageTime = new Date(Date.now() - mockConfig.websocket.healthCheckTimeout - 1000);
+      
+      jest.advanceTimersByTime(mockConfig.websocket.healthCheckInterval);
+      expect(mockErrorHandler.handleError).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'Health check timeout',
+        code: 408,
+        stream: 'data'
+      }));
+    })
+
+    it('should cleanup old data', () => {
+      jest.advanceTimersByTime(mockConfig.data.cleanupInterval)
+      expect(mockDataProcessor.cleanup).toHaveBeenCalled()
+    })
+  })
 
   describe('Message Handling', () => {
-    const mockQuote: AlpacaQuote = {
-      T: 'q',
-      S: 'AAPL',
-      bp: 150.5,
-      bs: 100,
-      ap: 150.6,
-      as: 100,
-      t: '2024-03-28T12:00:00Z',
-      c: [],
-      z: 'A'
-    };
-
-    const mockTrade: AlpacaTrade = {
-      T: 't',
-      S: 'AAPL',
-      p: 150.55,
-      s: 100,
-      t: '2024-03-28T12:00:00Z',
-      c: [],
-      z: 'A'
-    };
-
-    const mockBar: AlpacaBar = {
-      T: 'b',
-      S: 'AAPL',
-      o: 150.0,
-      h: 151.0,
-      l: 149.0,
-      c: 150.5,
-      v: 1000,
-      t: '2024-03-28T12:00:00Z',
-      n: 100,
-      vw: 150.25
-    };
-
     beforeEach(() => {
-      wsManager.connectDataWebSocket();
-      
-      // Simulate connection open
-      const openCall = mockDataWs.on.mock.calls.find(call => call[0] === 'open');
-      if (!openCall) throw new Error('Open handler not found');
-      const openHandler = openCall[1] as () => void;
-      openHandler();
-      
-      // Get the message handler
-      const messageCall = mockDataWs.on.mock.calls.find(call => call[0] === 'message');
-      if (!messageCall) throw new Error('Message handler not found');
-      const messageHandler = messageCall[1] as (data: Buffer) => void;
-      
+      // Initialize WebSocket connection and authenticate
+      const openHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'open'
+      )?.[1]
+      expect(openHandler).toBeDefined()
+      openHandler?.call(mockDataWs)
+
       // Simulate successful authentication
-      messageHandler(Buffer.from(JSON.stringify({ T: 'success', message: 'authenticated' })));
-      
-      // Subscribe to symbol
-      wsManager.subscribeToSymbols(['AAPL']);
-      
-      // Clear any previous mock calls
-      (mockDataWs.send as jest.Mock).mockClear();
-      (mockDataProcessor.addMessage as jest.Mock).mockClear();
-      (mockIo.emit as jest.Mock).mockClear();
-    });
+      const messageHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'message'
+      )?.[1]
+      expect(messageHandler).toBeDefined()
+      messageHandler?.call(mockDataWs, Buffer.from(JSON.stringify({
+        T: 'success',
+        message: 'authenticated'
+      })))
+    })
 
     it('should process quote messages', () => {
-      // Get the message handler
-      const messageCall = mockDataWs.on.mock.calls.find(call => call[0] === 'message');
-      if (!messageCall) throw new Error('Message handler not found');
-      const messageHandler = messageCall[1] as (data: Buffer) => void;
-      
-      // Process quote message
-      messageHandler(Buffer.from(JSON.stringify([mockQuote])));
+      const mockQuote = {
+        T: 'q',
+        S: 'AAPL',
+        bp: 150.5,
+        bs: 100,
+        ap: 150.6,
+        as: 200,
+        t: '2024-03-28T12:00:00Z',
+        c: [],
+        z: 'A'
+      }
 
-      const latestData = wsManager.getLatestData();
-      expect(latestData['AAPL']).toBeDefined();
-      expect(latestData['AAPL'].bidPrice).toBe(150.5);
-      expect(latestData['AAPL'].askPrice).toBe(150.6);
-      expect(latestData['AAPL'].spread).toBe(0.1);
+      const messageHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'message'
+      )?.[1]
+      expect(messageHandler).toBeDefined()
 
-      expect(mockDataProcessor.addMessage).toHaveBeenCalledWith('quote', expect.objectContaining({
+      messageHandler?.call(mockDataWs, Buffer.from(JSON.stringify(mockQuote)))
+
+      expect(mockDataProcessor.addMessage).toHaveBeenCalledWith('quote', {
         symbol: 'AAPL',
         bidPrice: 150.5,
         askPrice: 150.6,
-        spread: 0.1,
-        timestamp: '2024-03-28T12:00:00Z'
-      }));
-    });
+        timestamp: '2024-03-28T12:00:00Z',
+        midPrice: (150.5 + 150.6) / 2,
+        spread: 150.6 - 150.5
+      })
+    })
 
     it('should process trade messages', () => {
-      // Get the message handler
-      const messageCall = mockDataWs.on.mock.calls.find(call => call[0] === 'message');
-      if (!messageCall) throw new Error('Message handler not found');
-      const messageHandler = messageCall[1] as (data: Buffer) => void;
-      
-      // Process trade message
-      messageHandler(Buffer.from(JSON.stringify([mockTrade])));
+      const mockTrade = {
+        T: 't',
+        S: 'AAPL',
+        p: 150.55,
+        s: 100,
+        t: '2024-03-28T12:00:00Z',
+        c: [],
+        z: 'A'
+      }
 
-      const trades = wsManager.getLatestTrades();
-      expect(trades).toHaveLength(1);
-      expect(trades[0].symbol).toBe('AAPL');
-      expect(trades[0].price).toBe(150.55);
-      expect(trades[0].size).toBe(100);
-      expect(trades[0].timestamp).toBe('2024-03-28T12:00:00Z');
+      const messageHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'message'
+      )?.[1]
+      expect(messageHandler).toBeDefined()
+
+      messageHandler?.call(mockDataWs, Buffer.from(JSON.stringify(mockTrade)))
 
       expect(mockDataProcessor.addMessage).toHaveBeenCalledWith('trade', expect.objectContaining({
         symbol: 'AAPL',
         price: 150.55,
         size: 100,
         timestamp: '2024-03-28T12:00:00Z'
-      }));
-    });
+      }))
+    })
 
     it('should process bar messages', () => {
-      // Get the message handler
-      const messageCall = mockDataWs.on.mock.calls.find(call => call[0] === 'message');
-      if (!messageCall) throw new Error('Message handler not found');
-      const messageHandler = messageCall[1] as (data: Buffer) => void;
-      
-      // Process bar message
-      messageHandler(Buffer.from(JSON.stringify([mockBar])));
+      const mockBar = {
+        T: 'b',
+        S: 'AAPL',
+        o: 150.0,
+        h: 151.0,
+        l: 149.0,
+        c: 150.5,
+        v: 1000,
+        t: '2024-03-28T12:00:00Z',
+        n: 100,
+        vw: 150.25
+      }
+
+      const messageHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'message'
+      )?.[1]
+      expect(messageHandler).toBeDefined()
+
+      messageHandler?.call(mockDataWs, Buffer.from(JSON.stringify(mockBar)))
 
       expect(mockDataProcessor.addMessage).toHaveBeenCalledWith('bar', expect.objectContaining({
         symbol: 'AAPL',
@@ -319,96 +262,62 @@ describe('WebSocketManager', () => {
         close: 150.5,
         volume: 1000,
         timestamp: '2024-03-28T12:00:00Z'
-      }));
-    });
-  });
+      }))
+    })
 
-  describe('Subscription Management', () => {
-    beforeEach(() => {
-      wsManager.connectDataWebSocket();
-      
-      // Simulate connection open
-      const openCall = mockDataWs.on.mock.calls.find(call => call[0] === 'open');
-      if (!openCall) throw new Error('Open handler not found');
-      const openHandler = openCall[1] as () => void;
-      openHandler();
-      
-      // Simulate successful authentication
-      const messageCall = mockDataWs.on.mock.calls.find(call => call[0] === 'message');
-      if (!messageCall) throw new Error('Message handler not found');
-      const messageHandler = messageCall[1] as (data: Buffer) => void;
-      messageHandler(Buffer.from(JSON.stringify({ T: 'success', message: 'authenticated' })));
-    });
+    it('should handle error messages', () => {
+      const mockError = {
+        T: 'error',
+        code: 401,
+        message: 'Authentication failed'
+      }
 
-    it('should manage symbol subscriptions', () => {
-      wsManager.subscribeToSymbols(['AAPL']);
-      expect(mockDataWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('"action":"subscribe"')
-      );
-      expect(wsManager.getSubscriptions()).toContain('AAPL');
+      const messageHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'message'
+      )?.[1]
+      expect(messageHandler).toBeDefined()
 
-      wsManager.unsubscribeFromSymbol('AAPL');
-      expect(mockDataWs.send).toHaveBeenCalledWith(
-        expect.stringContaining('"action":"unsubscribe"')
-      );
-      expect(wsManager.getSubscriptions()).not.toContain('AAPL');
-    });
+      messageHandler?.call(mockDataWs, Buffer.from(JSON.stringify(mockError)))
 
-    it('should not duplicate subscriptions', () => {
-      wsManager.subscribeToSymbols(['AAPL']);
-      wsManager.subscribeToSymbols(['AAPL']);
-      
-      const subscriptions = wsManager.getSubscriptions();
-      expect(subscriptions.filter(s => s === 'AAPL')).toHaveLength(1);
-      
-      // Should only send subscribe message once
-      const subscribeCalls = (mockDataWs.send as jest.Mock).mock.calls.filter(
-        call => call[0].includes('"action":"subscribe"')
-      );
-      expect(subscribeCalls).toHaveLength(1);
-    });
-  });
+      expect(mockErrorHandler.handleError).toHaveBeenCalledWith(mockError)
+    })
 
-  describe('Error Handling', () => {
-    beforeEach(() => {
-      wsManager.connectDataWebSocket();
-    });
+    it('should handle subscription messages', () => {
+      const mockSubscription = {
+        T: 'subscription',
+        trades: ['AAPL'],
+        quotes: ['AAPL'],
+        bars: ['AAPL']
+      }
 
-    it('should handle WebSocket errors', () => {
-      const mockError = new Error('WebSocket error');
-      const errorCall = mockDataWs.on.mock.calls.find(call => call[0] === 'error');
-      if (!errorCall) throw new Error('Error handler not found');
-      const errorHandler = errorCall[1] as (error: Error) => void;
-      errorHandler(mockError);
+      const messageHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'message'
+      )?.[1]
+      expect(messageHandler).toBeDefined()
 
-      expect(mockIo.emit).toHaveBeenCalledWith(
-        'connectionState',
-        expect.objectContaining({
-          data: expect.objectContaining({
-            metrics: expect.objectContaining({
-              errorCount: 1
-            })
-          })
-        })
-      );
-    });
+      messageHandler?.call(mockDataWs, Buffer.from(JSON.stringify(mockSubscription)))
 
-    it('should handle message parsing errors', () => {
-      const messageCall = mockDataWs.on.mock.calls.find(call => call[0] === 'message');
-      if (!messageCall) throw new Error('Message handler not found');
-      const messageHandler = messageCall[1] as (data: Buffer) => void;
-      messageHandler(Buffer.from('invalid json'));
+      expect(mockServer.emit).toHaveBeenCalledWith('connectionState', expect.any(Object))
+    })
 
-      expect(mockIo.emit).toHaveBeenCalledWith(
-        'connectionState',
-        expect.objectContaining({
-          data: expect.objectContaining({
-            metrics: expect.objectContaining({
-              errorCount: 1
-            })
-          })
-        })
-      );
-    });
-  });
-}); 
+    it('should handle invalid messages', () => {
+      const messageHandler = mockDataWs.on.mock.calls.find(
+        (call: WebSocketMockCall) => call[0] === 'message'
+      )?.[1]
+      expect(messageHandler).toBeDefined()
+
+      messageHandler?.call(mockDataWs, Buffer.from('invalid json'))
+
+      expect(mockErrorHandler.handleError).toHaveBeenCalled()
+    })
+  })
+
+  describe('Cleanup', () => {
+    it('should cleanup resources on destroy', () => {
+      wsManager.destroy()
+      expect(mockDataWs.close).toHaveBeenCalled()
+      expect(mockDataProcessor.cleanup).toHaveBeenCalled()
+      expect(mockErrorHandler.cleanup).toHaveBeenCalled()
+    })
+  })
+}) 

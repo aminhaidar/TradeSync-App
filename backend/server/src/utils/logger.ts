@@ -5,13 +5,13 @@ class Logger {
     this.context = context;
   }
 
-  private formatMessage(level: string, message: string, meta?: Record<string, unknown> | unknown): string {
+  private formatMessage(level: string, message: string, meta?: Record<string, unknown> | unknown | string): string {
     const timestamp = new Date().toISOString();
-    const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
+    const metaStr = meta ? ` ${typeof meta === 'string' ? meta : JSON.stringify(meta)}` : '';
     return `${timestamp} [${level}] [${this.context}] ${message}${metaStr}`;
   }
 
-  info(message: string, meta?: Record<string, unknown>): void {
+  info(message: string, meta?: Record<string, unknown> | string): void {
     console.log(this.formatMessage('INFO', message, meta));
   }
 
@@ -19,11 +19,11 @@ class Logger {
     console.error(this.formatMessage('ERROR', message, error));
   }
 
-  warn(message: string, meta?: Record<string, unknown>): void {
+  warn(message: string, meta?: Record<string, unknown> | string): void {
     console.warn(this.formatMessage('WARN', message, meta));
   }
 
-  debug(message: string, meta?: Record<string, unknown>): void {
+  debug(message: string, meta?: Record<string, unknown> | string): void {
     console.debug(this.formatMessage('DEBUG', message, meta));
   }
 }

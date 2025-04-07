@@ -11,6 +11,8 @@ class WebSocketManager {
     this.messageQueue = [];
     this.latestData = {};
     this.latestTrades = [];
+    this.updateInterval = null;
+    this.heartbeatInterval = null;
     
     // Initialize data cleanup
     this.startDataCleanup();
@@ -20,6 +22,9 @@ class WebSocketManager {
     
     // Initialize health monitoring
     this.startHealthMonitoring();
+
+    // Initialize frequent updates
+    this.startFrequentUpdates();
   }
   
   // WebSocket Connection Methods
@@ -96,6 +101,7 @@ class WebSocketManager {
             if (msg.msg === 'authenticated') {
               console.log('Authentication successful for data stream');
               this.subscribeToSymbols();
+              this.startHeartbeat();
             }
             break;
             
@@ -118,10 +124,13 @@ class WebSocketManager {
           case 'b':
             this.handleBar(msg);
             break;
+            
+          default:
+            console.log('Unhandled message type:', msg.T);
         }
       });
     } catch (error) {
-      console.error('Error processing WebSocket message:', error);
+      console.error('Error handling data message:', error);
     }
   }
   
@@ -259,26 +268,35 @@ class WebSocketManager {
   }
   
   handleClose(stream) {
-    console.log(`Disconnected from Alpaca ${stream} WebSocket`);
+    console.log(`${stream} WebSocket closed`);
     
-    if (this.reconnectAttempts < config.websocket.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = Math.min(
-        config.websocket.reconnectDelay * Math.pow(2, this.reconnectAttempts),
-        config.websocket.maxReconnectDelay
-      );
-      
-      setTimeout(() => {
-        console.log(`Attempting to reconnect ${stream} stream...`);
+    // Clear intervals
+    if (this.updateInterval) {
+      clearInterval(this.updateInterval);
+    }
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+    
+    // Attempt to reconnect after a delay
+    setTimeout(() => {
+      if (this.reconnectAttempts < 5) {
+        this.reconnectAttempts++;
+        console.log(`Attempting to reconnect ${stream} WebSocket (attempt ${this.reconnectAttempts})`);
         if (stream === 'data') {
           this.connectDataWebSocket();
         } else {
           this.connectTradingWebSocket();
         }
-      }, delay);
-    } else {
-      console.error(`Max reconnection attempts reached for ${stream} stream`);
-    }
+      } else {
+        console.error(`Failed to reconnect ${stream} WebSocket after ${this.reconnectAttempts} attempts`);
+        this.io.emit('connectionHealth', { 
+          status: 'error', 
+          message: `Failed to reconnect ${stream} WebSocket`,
+          timestamp: Date.now()
+        });
+      }
+    }, Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000));
   }
   
   // Data Management
@@ -311,6 +329,32 @@ class WebSocketManager {
         tradingStream: this.tradingWS?.readyState === WebSocket.OPEN
       });
     }, config.websocket.healthCheckInterval);
+  }
+  
+  startFrequentUpdates() {
+    // Clear any existing interval
+    if (this.updateInterval) {
+      clearInterval(this.updateInterval);
+    }
+
+    // Send updates every 500ms
+    this.updateInterval = setInterval(() => {
+      if (Object.keys(this.latestData).length > 0) {
+        this.io.emit('accountInfo', this.latestData);
+      }
+    }, 500);
+  }
+  
+  startHeartbeat() {
+    // Clear any existing interval
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+
+    // Send heartbeat every 30 seconds
+    this.heartbeatInterval = setInterval(() => {
+      this.io.emit('connectionHealth', { status: 'healthy', timestamp: Date.now() });
+    }, 30000);
   }
   
   // Public Methods

@@ -20,12 +20,14 @@ export interface AlpacaConfig {
     maxReconnectDelay: number;
     batchInterval: number;
     healthCheckInterval: number;
+    healthCheckTimeout: number;
     batchSize: number;
     maxQueueSize: number;
   };
   data: {
     maxTrades: number;
     cleanupInterval: number;
+    maxAge: number;
     maxPrice: number;
     maxVolume: number;
     maxSpread: number;

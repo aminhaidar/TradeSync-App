@@ -201,22 +201,19 @@ export class WebSocketManager {
       });
       
       this.dataWS.on('error', (error: Error) => {
-        this.updateMetrics('data', 'error');
+        this.logger.error('Data WebSocket error:', error);
         this.dataErrorHandler.handleError(error);
+        this.updateMetrics('data', 'error');
       });
       
       this.dataWS.on('close', () => {
+        this.logger.info('Data WebSocket closed');
         this.updateConnectionState('data', 'disconnected');
-        this.handleClose('data');
+        this.dataErrorHandler.handleDisconnect();
       });
-      
-      this.dataWS.on('ping', () => this.handlePing());
-      
     } catch (error) {
-      this.logger.error('Failed to create data WebSocket connection', error as Error);
-      this.updateMetrics('data', 'error');
-      this.updateConnectionState('data', 'error');
-      this.dataErrorHandler.handleError(error as Error);
+      this.logger.error('Error connecting to Data WebSocket:', error);
+      this.dataErrorHandler.handleError(error);
     }
   }
 
@@ -249,308 +246,264 @@ export class WebSocketManager {
       });
       
       this.tradingWS.on('error', (error: Error) => {
-        this.updateMetrics('trading', 'error');
+        this.logger.error('Trading WebSocket error:', error);
         this.tradingErrorHandler.handleError(error);
+        this.updateMetrics('trading', 'error');
       });
       
       this.tradingWS.on('close', () => {
+        this.logger.info('Trading WebSocket closed');
         this.updateConnectionState('trading', 'disconnected');
-        this.handleClose('trading');
+        this.tradingErrorHandler.handleDisconnect();
       });
-      
-      this.tradingWS.on('ping', () => this.handlePing());
-      
     } catch (error) {
-      this.logger.error('Failed to create trading WebSocket connection', error as Error);
-      this.updateMetrics('trading', 'error');
-      this.updateConnectionState('trading', 'error');
-      this.tradingErrorHandler.handleError(error as Error);
+      this.logger.error('Error connecting to Trading WebSocket:', error);
+      this.tradingErrorHandler.handleError(error);
     }
   }
 
   private authenticateDataStream(): void {
     if (!this.dataWS) return;
-
-    const authMsg = {
+    
+    const authMessage = {
       action: 'auth',
       key: this.config.alpaca.data.key,
       secret: this.config.alpaca.data.secret
     };
     
-    this.logger.info('Sending data stream authentication...');
-    this.dataWS.send(JSON.stringify(authMsg));
+    this.dataWS.send(JSON.stringify(authMessage));
   }
 
   private authenticateTradingStream(): void {
     if (!this.tradingWS) return;
-
-    const authMsg = {
-      action: 'authenticate',
-      data: {
-        key_id: this.config.alpaca.trading.key,
-        secret_key: this.config.alpaca.trading.secret
-      }
+    
+    const authMessage = {
+      action: 'auth',
+      key: this.config.alpaca.trading.key,
+      secret: this.config.alpaca.trading.secret
     };
     
-    this.logger.info('Sending trading stream authentication...');
-    this.tradingWS.send(JSON.stringify(authMsg));
+    this.tradingWS.send(JSON.stringify(authMessage));
+  }
+
+  private isAlpacaMessage(message: unknown): message is AlpacaMessage {
+    return (
+      typeof message === 'object' &&
+      message !== null &&
+      'T' in message &&
+      typeof (message as { T: unknown }).T === 'string'
+    );
   }
 
   private handleDataMessage(data: Buffer): void {
     try {
-      const message = JSON.parse(data.toString()) as AlpacaMessage;
+      const message = JSON.parse(data.toString());
       
-      // Handle authentication response
-      if (message.T === 'success' && message.message === 'authenticated') {
-        this.isAuthenticated = true;
-        this.updateConnectionState('data', 'authenticated');
-        this.logger.info('Successfully authenticated with Alpaca data stream');
-        return;
-      }
-      
-      // Handle error messages
-      if (message.T === 'error') {
-        this.logger.error('Received error from Alpaca:', message);
-        this.updateMetrics('data', 'error');
-        const wsError = new WebSocketError(
-          message.message,
-          message.code,
-          'data',
-          { originalError: message }
-        );
-        this.dataErrorHandler.handleError(wsError);
-        return;
-      }
-      
-      // Process market data messages
-      if (message.T === 'q' || message.T === 't' || message.T === 'b') {
-        this.handleMarketData(message);
+      if (this.isAlpacaMessage(message)) {
+        const messageType = message.T;
+        switch (messageType) {
+          case 't':
+            this.handleTradeMessage(message as AlpacaTrade);
+            break;
+          case 'q':
+            this.handleQuoteMessage(message as AlpacaQuote);
+            break;
+          case 'b':
+            this.handleBarMessage(message as AlpacaBar);
+            break;
+          case 'error':
+            this.dataErrorHandler.handleError(message);
+            break;
+          case 'success':
+            this.logger.info('Success message received:', message.message);
+            break;
+          case 'subscription':
+            this.logger.info('Subscription update received:', JSON.stringify(message));
+            break;
+          default:
+            this.logger.warn('Unknown message type:', messageType);
+        }
       }
     } catch (error) {
-      this.logger.error('Error processing data message:', error as Error);
-      this.updateMetrics('data', 'error');
-      this.dataErrorHandler.handleError(error as Error);
+      this.dataErrorHandler.handleError(error);
     }
-  }
-
-  private handleMarketData(message: AlpacaMessage): void {
-    switch (message.T) {
-      case 'q':
-        this.handleQuote(message as AlpacaQuote);
-        break;
-      case 't':
-        this.handleTrade(message as AlpacaTrade);
-        break;
-      case 'b':
-        this.handleBar(message as AlpacaBar);
-        break;
-    }
-  }
-
-  private handleQuote(quote: AlpacaQuote): void {
-    const marketData: MarketData = {
-      symbol: quote.S,
-      timestamp: quote.t,
-      bidPrice: quote.bp,
-      askPrice: quote.ap,
-      midPrice: (quote.bp + quote.ap) / 2,
-      spread: quote.ap - quote.bp
-    };
-
-    this.latestData[quote.S] = marketData;
-    this.dataProcessor.addMessage('quote', marketData);
-  }
-
-  private handleTrade(trade: AlpacaTrade): void {
-    const tradeData: Trade = {
-      symbol: trade.S,
-      timestamp: trade.t,
-      price: trade.p,
-      size: trade.s
-    };
-
-    this.latestTrades.unshift(tradeData);
-    if (this.latestTrades.length > this.config.data.maxTrades) {
-      this.latestTrades.pop();
-    }
-
-    this.dataProcessor.addMessage('trade', tradeData);
-  }
-
-  private handleBar(bar: AlpacaBar): void {
-    const barData: Bar = {
-      symbol: bar.S,
-      timestamp: bar.t,
-      open: bar.o,
-      high: bar.h,
-      low: bar.l,
-      close: bar.c,
-      volume: bar.v
-    };
-
-    this.dataProcessor.addMessage('bar', barData);
   }
 
   private handleTradingMessage(data: Buffer): void {
     try {
-      const msg = JSON.parse(data.toString());
+      const message = JSON.parse(data.toString());
       
-      if (msg.stream === 'authorization' && msg.data?.status === 'authorized') {
-        this.logger.info('Authentication successful for trading stream');
-        this.subscribeToTradingUpdates();
-      } else if (msg.stream === 'trade_updates') {
-        this.io.emit('tradeUpdate', msg.data);
+      if (this.isAlpacaMessage(message)) {
+        const messageType = message.T;
+        switch (messageType) {
+          case 't':
+            this.handleTradeMessage(message as AlpacaTrade);
+            break;
+          case 'q':
+            this.handleQuoteMessage(message as AlpacaQuote);
+            break;
+          case 'b':
+            this.handleBarMessage(message as AlpacaBar);
+            break;
+          case 'error':
+            this.tradingErrorHandler.handleError(message);
+            break;
+          case 'success':
+            this.logger.info('Success message received:', message.message);
+            break;
+          case 'subscription':
+            this.logger.info('Subscription update received:', JSON.stringify(message));
+            break;
+          default:
+            this.logger.warn('Unknown message type:', messageType);
+        }
       }
     } catch (error) {
-      this.logger.error('Error processing Trading WebSocket message', error as Error);
+      this.tradingErrorHandler.handleError(error);
     }
   }
 
-  private handleClose(stream: 'data' | 'trading'): void {
-    this.logger.warn(`Disconnected from Alpaca ${stream} WebSocket`);
-    
-    if (stream === 'data') {
-      this.isAuthenticated = false;
-    }
-    
-    const wsError = new WebSocketError('Connection closed', 0, stream);
-    if (stream === 'data') {
-      this.dataErrorHandler.handleError(wsError);
-    } else {
-      this.tradingErrorHandler.handleError(wsError);
-    }
-  }
-
-  private handlePing(): void {
-    if (this.dataWS?.readyState === WebSocket.OPEN) {
-      this.dataWS.pong();
-    }
-    if (this.tradingWS?.readyState === WebSocket.OPEN) {
-      this.tradingWS.pong();
-    }
-  }
-
-  private checkHealth(): void {
-    const isHealthy = this.dataWS?.readyState === WebSocket.OPEN && 
-                     this.tradingWS?.readyState === WebSocket.OPEN &&
-                     this.isAuthenticated;
-    
-    const health: ConnectionHealth = {
-      status: isHealthy ? 'healthy' : 'unhealthy',
-      timestamp: new Date(),
-      dataStream: this.dataWS?.readyState === WebSocket.OPEN,
-      tradingStream: this.tradingWS?.readyState === WebSocket.OPEN
+  private handleTradeMessage(trade: AlpacaTrade): void {
+    const marketData: Trade = {
+      symbol: trade.S,
+      price: trade.p,
+      size: trade.s,
+      timestamp: trade.t
     };
-    
-    this.io.emit('connectionHealth', health as unknown as Record<string, unknown>);
-    
-    if (!isHealthy) {
-      this.logger.warn('Connection health check failed', health as unknown as Record<string, unknown>);
-    }
+
+    this.dataProcessor.addMessage('trade', marketData);
+  }
+
+  private handleQuoteMessage(quote: AlpacaQuote): void {
+    const marketData: MarketData = {
+      symbol: quote.S,
+      bidPrice: quote.bp,
+      askPrice: quote.ap,
+      timestamp: quote.t,
+      midPrice: (quote.bp + quote.ap) / 2,
+      spread: quote.ap - quote.bp
+    };
+
+    this.dataProcessor.addMessage('quote', marketData);
+  }
+
+  private handleBarMessage(bar: AlpacaBar): void {
+    const marketData: Bar = {
+      symbol: bar.S,
+      open: bar.o,
+      high: bar.h,
+      low: bar.l,
+      close: bar.c,
+      volume: bar.v,
+      timestamp: bar.t
+    };
+
+    this.dataProcessor.addMessage('bar', marketData);
+  }
+
+  private handleOrderMessage(message: any): void {
+    // Handle order updates
+    this.io.emit('orderUpdate', message);
   }
 
   private processMessageBatch(): void {
     if (this.dataProcessor.hasMessages()) {
-      const batch = this.dataProcessor.processMessages();
-      this.io.emit('marketUpdates', batch);
+      this.dataProcessor.processMessages();
     }
   }
 
   private cleanupOldData(): void {
-    if (this.latestTrades.length > this.config.data.maxTrades) {
-      this.latestTrades = this.latestTrades.slice(-this.config.data.maxTrades);
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - this.config.data.maxAge);
+    
+    for (const symbol in this.latestData) {
+      if (new Date(this.latestData[symbol].timestamp) < cutoff) {
+        delete this.latestData[symbol];
+      }
+    }
+    
+    // Clean up the data processor
+    this.dataProcessor.cleanup();
+  }
+
+  private checkHealth(): void {
+    const now = new Date();
+    const dataTimeout = new Date(now.getTime() - this.config.websocket.healthCheckTimeout);
+    const tradingTimeout = new Date(now.getTime() - this.config.websocket.healthCheckTimeout);
+    
+    if (this.dataState === 'connected' && this.dataMetrics.lastMessageTime < dataTimeout) {
+      this.dataErrorHandler.handleError(new WebSocketError('Health check timeout', 408, 'data'));
+    }
+    
+    if (this.tradingState === 'connected' && this.tradingMetrics.lastMessageTime < tradingTimeout) {
+      this.tradingErrorHandler.handleError(new WebSocketError('Health check timeout', 408, 'trading'));
     }
   }
 
   public subscribeToSymbols(symbols: string[]): void {
-    if (!this.isAuthenticated) {
-      this.logger.warn('Cannot subscribe: WebSocket not authenticated');
+    if (!this.dataWS || this.dataWS.readyState !== WebSocket.OPEN) {
+      this.logger.warn('Cannot subscribe: Data WebSocket not connected');
       return;
     }
-
-    const newSymbols = symbols.filter(symbol => !this.subscriptions.has(symbol));
-    if (newSymbols.length === 0) {
-      return;
-    }
-
+    
     const subscribeMessage = {
       action: 'subscribe',
-      trades: newSymbols,
-      quotes: newSymbols,
-      bars: newSymbols
+      trades: symbols,
+      quotes: symbols,
+      bars: symbols
     };
-
-    this.logger.info(`Subscribing to symbols: ${newSymbols.join(', ')}`);
-    this.dataWS?.send(JSON.stringify(subscribeMessage));
     
-    newSymbols.forEach(symbol => this.subscriptions.add(symbol));
+    this.dataWS.send(JSON.stringify(subscribeMessage));
+    
+    symbols.forEach(symbol => {
+      this.subscriptions.add(symbol);
+    });
   }
 
   public unsubscribeFromSymbol(symbol: string): void {
-    if (!this.subscriptions.has(symbol)) {
-      this.logger.warn(`Not subscribed to ${symbol}`);
+    if (!this.dataWS || this.dataWS.readyState !== WebSocket.OPEN) {
+      this.logger.warn('Cannot unsubscribe: Data WebSocket not connected');
       return;
     }
     
-    this.subscriptions.delete(symbol);
-    this.logger.info(`Unsubscribing from ${symbol}`);
+    const unsubscribeMessage = {
+      action: 'unsubscribe',
+      trades: [symbol],
+      quotes: [symbol],
+      bars: [symbol]
+    };
     
-    if (this.dataWS?.readyState === WebSocket.OPEN && this.isAuthenticated) {
-      const unsubscribeMsg = {
-        action: 'unsubscribe',
-        quotes: [symbol],
-        trades: [symbol],
-        bars: [symbol]
-      };
-      
-      this.dataWS.send(JSON.stringify(unsubscribeMsg));
-    }
-  }
-
-  public getLatestData(): Record<string, MarketData> {
-    return this.latestData;
-  }
-
-  public getLatestTrades(): Trade[] {
-    return this.latestTrades;
-  }
-
-  public getSubscriptions(): string[] {
-    return Array.from(this.subscriptions);
-  }
-
-  public isConnected(): boolean {
-    return this.dataWS?.readyState === WebSocket.OPEN && 
-           this.tradingWS?.readyState === WebSocket.OPEN &&
-           this.isAuthenticated;
+    this.dataWS.send(JSON.stringify(unsubscribeMessage));
+    
+    this.subscriptions.delete(symbol);
   }
 
   public cleanup(): void {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
     }
+    
+    if (this.dataWS) {
+      this.dataWS.close();
+    }
+    
+    if (this.tradingWS) {
+      this.tradingWS.close();
+    }
+  }
+
+  public destroy(): void {
     if (this.dataWS) {
       this.dataWS.close();
     }
     if (this.tradingWS) {
       this.tradingWS.close();
     }
+    this.dataProcessor.cleanup();
     this.dataErrorHandler.cleanup();
     this.tradingErrorHandler.cleanup();
-    this.dataProcessor.cleanup();
-  }
-
-  private subscribeToTradingUpdates(): void {
-    if (!this.tradingWS) return;
-    
-    const subscribeMsg = {
-      action: 'subscribe',
-      trades: ['*'],
-      quotes: ['*'],
-      bars: ['*']
-    };
-    
-    this.logger.info('Subscribing to trading updates');
-    this.tradingWS.send(JSON.stringify(subscribeMsg));
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+    }
   }
 } 

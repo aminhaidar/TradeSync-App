@@ -178,4 +178,9 @@ export class ErrorHandler extends EventEmitter {
       clearTimeout(this.reconnectTimer);
     }
   }
+
+  public handleDisconnect(): void {
+    this.logger.info(`WebSocket disconnected in ${this.stream} stream`);
+    this.scheduleReconnect();
+  }
 } 

@@ -3,20 +3,20 @@ const config = {
   isProduction: process.env.NODE_ENV === 'production',
   
   // Server settings
-  port: process.env.PORT || 5003,
+  port: process.env.PORT || 3001,
   
   // Alpaca API settings
   alpaca: {
     trading: {
-      url: process.env.ALPACA_TRADING_URL,
-      wsUrl: process.env.ALPACA_TRADING_WS_URL,
+      url: process.env.ALPACA_TRADING_URL || 'https://paper-api.alpaca.markets',
+      wsUrl: process.env.ALPACA_TRADING_WS_URL || 'wss://paper-api.alpaca.markets/stream',
       key: process.env.ALPACA_API_KEY,
       secret: process.env.ALPACA_API_SECRET
     },
     data: {
-      wsUrl: process.env.ALPACA_DATA_WS_URL,
-      key: process.env.ALPACA_DATA_API_KEY || process.env.ALPACA_API_KEY,
-      secret: process.env.ALPACA_DATA_API_SECRET || process.env.ALPACA_API_SECRET
+      wsUrl: process.env.ALPACA_DATA_WS_URL || 'wss://stream.data.alpaca.markets/v2/iex',
+      key: process.env.ALPACA_API_KEY,
+      secret: process.env.ALPACA_API_SECRET
     }
   },
   
@@ -38,11 +38,11 @@ const config = {
 
 // Validate required environment variables
 const requiredEnvVars = [
+  'ALPACA_API_KEY',
+  'ALPACA_API_SECRET',
   'ALPACA_TRADING_URL',
   'ALPACA_TRADING_WS_URL',
-  'ALPACA_DATA_WS_URL',
-  'ALPACA_API_KEY',
-  'ALPACA_API_SECRET'
+  'ALPACA_DATA_WS_URL'
 ];
 
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
