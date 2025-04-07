@@ -77,27 +77,12 @@ app.get('/api/status', (req, res) => {
 
 app.get('/api/account', async (req, res) => {
   try {
-    const response = await axios.get(`${config.alpaca.trading.url}/v2/account`, {
-      headers: {
-        'APCA-API-KEY-ID': config.alpaca.trading.key,
-        'APCA-API-SECRET-KEY': config.alpaca.trading.secret
-      }
-    });
-    
-    const data = response.data;
-    const transformedData = {
-      balance: parseFloat(data.equity),
-      dayPL: parseFloat(data.equity) - parseFloat(data.last_equity),
-      dayPLPercent: ((parseFloat(data.equity) - parseFloat(data.last_equity)) / parseFloat(data.last_equity)) * 100,
-      openPL: parseFloat(data.position_market_value) + parseFloat(data.cash) - parseFloat(data.equity),
-      buyingPower: parseFloat(data.buying_power),
-      unsettledCash: parseFloat(data.non_marginable_buying_power)
-    };
-    
-    console.log('Raw Alpaca data:', data);
-    console.log('Transformed data:', transformedData);
-    
-    res.json(transformedData);
+    const accountInfo = await getAccountInfo();
+    if (accountInfo) {
+      res.json(accountInfo);
+    } else {
+      res.status(500).json({ error: 'Failed to fetch account information' });
+    }
   } catch (error) {
     console.error('Error handling account info request:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -133,72 +118,9 @@ app.post('/api/symbols', (req, res) => {
   }
 });
 
-app.get('/api/portfolio/history', async (req, res) => {
-  try {
-    const { period = '1M', timeframe = '1D' } = req.query;
-    
-    const response = await axios.get(`${config.alpaca.trading.url}/v2/account/portfolio/history`, {
-      headers: {
-        'APCA-API-KEY-ID': config.alpaca.trading.key,
-        'APCA-API-SECRET-KEY': config.alpaca.trading.secret
-      },
-      params: {
-        period,
-        timeframe,
-        extended_hours: true
-      }
-    });
-    
-    const data = response.data;
-    const transformedData = data.timestamp.map((timestamp, index) => ({
-      timestamp: new Date(timestamp * 1000).toISOString(),
-      equity: data.equity[index],
-      profitLoss: data.profit_loss[index],
-      profitLossPct: data.profit_loss_pct[index]
-    }));
-    
-    res.json(transformedData);
-  } catch (error) {
-    console.error('Error fetching portfolio history:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.get('/api/positions', async (req, res) => {
-  try {
-    const response = await axios.get(`${config.alpaca.trading.url}/v2/positions`, {
-      headers: {
-        'APCA-API-KEY-ID': config.alpaca.trading.key,
-        'APCA-API-SECRET-KEY': config.alpaca.trading.secret
-      }
-    });
-    
-    const positions = response.data.map(position => ({
-      symbol: position.symbol,
-      qty: parseFloat(position.qty),
-      avgPrice: parseFloat(position.avg_entry_price),
-      marketPrice: parseFloat(position.current_price),
-      marketValue: parseFloat(position.market_value),
-      unrealizedPL: parseFloat(position.unrealized_pl),
-      unrealizedPLPercent: parseFloat(position.unrealized_plpc) * 100,
-      type: position.side
-    }));
-    
-    res.json(positions);
-  } catch (error) {
-    console.error('Error fetching positions:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // Helper function to get account information
 const getAccountInfo = async () => {
   try {
-    console.log('Fetching account info from Alpaca...');
-    console.log('URL:', `${config.alpaca.trading.url}/v2/account`);
-    console.log('Using API Key:', config.alpaca.trading.key ? '✓ Present' : '✗ Missing');
-    console.log('Using Secret Key:', config.alpaca.trading.secret ? '✓ Present' : '✗ Missing');
-    
     const response = await axios.get(`${config.alpaca.trading.url}/v2/account`, {
       headers: {
         'APCA-API-KEY-ID': config.alpaca.trading.key,
@@ -206,26 +128,9 @@ const getAccountInfo = async () => {
       }
     });
     
-    console.log('Alpaca response:', response.data);
-    
-    const data = response.data;
-    const transformedData = {
-      balance: parseFloat(data.equity),
-      dayPL: parseFloat(data.equity) - parseFloat(data.last_equity),
-      dayPLPercent: ((parseFloat(data.equity) - parseFloat(data.last_equity)) / parseFloat(data.last_equity)) * 100,
-      openPL: parseFloat(data.position_market_value) + parseFloat(data.cash) - parseFloat(data.equity),
-      buyingPower: parseFloat(data.buying_power),
-      unsettledCash: parseFloat(data.non_marginable_buying_power)
-    };
-    
-    console.log('Transformed data:', transformedData);
-    return transformedData;
+    return response.data;
   } catch (error) {
-    console.error('Error fetching account info:', error.message);
-    if (error.response) {
-      console.error('Error response data:', error.response.data);
-      console.error('Error response status:', error.response.status);
-    }
+    console.error('Error fetching account info:', error);
     return null;
   }
 };

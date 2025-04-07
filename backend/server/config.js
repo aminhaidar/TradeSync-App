@@ -3,18 +3,18 @@ const config = {
   isProduction: process.env.NODE_ENV === 'production',
   
   // Server settings
-  port: 5003,
+  port: process.env.PORT || 5003,
   
   // Alpaca API settings
   alpaca: {
     trading: {
-      url: process.env.ALPACA_TRADING_URL || 'https://paper-api.alpaca.markets',
-      wsUrl: process.env.ALPACA_TRADING_WS_URL || 'wss://paper-api.alpaca.markets/stream',
+      url: process.env.ALPACA_TRADING_URL,
+      wsUrl: process.env.ALPACA_TRADING_WS_URL,
       key: process.env.ALPACA_API_KEY,
       secret: process.env.ALPACA_API_SECRET
     },
     data: {
-      wsUrl: process.env.ALPACA_DATA_WS_URL || 'wss://stream.data.alpaca.markets/v2/test',
+      wsUrl: process.env.ALPACA_DATA_WS_URL,
       key: process.env.ALPACA_DATA_API_KEY || process.env.ALPACA_API_KEY,
       secret: process.env.ALPACA_DATA_API_SECRET || process.env.ALPACA_API_SECRET
     }
@@ -26,25 +26,21 @@ const config = {
     reconnectDelay: 5000,
     maxReconnectDelay: 30000,
     batchInterval: 100,
-    healthCheckInterval: 30000,
-    batchSize: 100,
-    maxQueueSize: 1000
+    healthCheckInterval: 30000
   },
   
   // Data management settings
   data: {
     maxTrades: 1000,
-    cleanupInterval: 60000,
-    maxPrice: 10000,
-    maxVolume: 1000000,
-    maxSpread: 100,
-    minPrice: 0.01,
-    minVolume: 1
+    cleanupInterval: 60000
   }
 };
 
 // Validate required environment variables
 const requiredEnvVars = [
+  'ALPACA_TRADING_URL',
+  'ALPACA_TRADING_WS_URL',
+  'ALPACA_DATA_WS_URL',
   'ALPACA_API_KEY',
   'ALPACA_API_SECRET'
 ];
