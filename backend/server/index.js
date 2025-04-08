@@ -45,7 +45,9 @@ const wsManager = new WebSocketManager(io);
 
 // Initialize Trade Service
 const { TradeService } = require('./src/services/trade');
+const { PerformanceService } = require('./src/services/performance');
 const tradeService = new TradeService(io);
+const performanceService = new PerformanceService(io);
 
 // Connect to Alpaca WebSockets
 wsManager.connectDataWebSocket();
@@ -319,6 +321,25 @@ app.delete('/api/trades/orders/:orderId', async (req, res) => {
   } catch (error) {
     console.error('Error cancelling order:', error);
     res.status(500).json({ error: 'Failed to cancel order' });
+  }
+});
+
+// Add performance endpoint
+app.get('/api/performance', async (req, res) => {
+  try {
+    const timeRange = req.query.timeRange || '7d';
+    console.log('Fetching performance data for timeRange:', timeRange);
+    const performanceData = await performanceService.getPerformanceData(timeRange);
+    res.json({ 
+      success: true,
+      data: performanceData 
+    });
+  } catch (error) {
+    console.error('Error in performance endpoint:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch performance data' 
+    });
   }
 });
 

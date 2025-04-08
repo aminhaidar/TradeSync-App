@@ -212,4 +212,318 @@ For support, please open an issue in the GitHub repository or contact the mainta
 
 - [Alpaca Markets](https://alpaca.markets/) for providing the trading API
 - [Socket.IO](https://socket.io/) for real-time WebSocket functionality
-- [Express](https://expressjs.com/) for the HTTP server framework 
+- [Express](https://expressjs.com/) for the HTTP server framework
+
+## Adding Components to the Dashboard
+
+### Component Structure Guidelines
+
+When adding new components to the dashboard, follow these guidelines to maintain consistency and proper theming:
+
+#### 1. Basic Component Structure
+```tsx
+"use client"
+
+import * as React from "react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+
+export function YourComponent() {
+  return (
+    <div className="px-4 lg:px-6">
+      <Card>
+        <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+          <div className="grid flex-1 gap-1 text-center sm:text-left">
+            <CardTitle>Component Title</CardTitle>
+            <CardDescription>Component description</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="p-6">
+          {/* Component content */}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+```
+
+#### 2. Theme Integration
+- Use Shadcn's theme variables for colors:
+  ```tsx
+  // Correct way to use theme colors
+  stroke="hsl(var(--border))"
+  className="bg-muted"
+  color="hsl(var(--chart-1))"
+  ```
+- Available theme variables:
+  - `--background`
+  - `--foreground`
+  - `--card`
+  - `--card-foreground`
+  - `--popover`
+  - `--muted`
+  - `--muted-foreground`
+  - `--border`
+  - `--input`
+  - `--chart-1` through `--chart-5` (for data visualizations)
+
+#### 3. Chart Components
+When creating chart components:
+```tsx
+const chartConfig = {
+  dataKey1: {
+    label: "Label 1",
+    color: "hsl(221.2 83.2% 53.3%)", // Primary chart color
+  },
+  dataKey2: {
+    label: "Label 2",
+    color: "hsl(212 95% 68%)",  // Secondary chart color
+  },
+} satisfies ChartConfig
+
+// Use ChartContainer for consistent chart styling
+<ChartContainer
+  config={chartConfig}
+  className="aspect-auto h-[250px] w-full"
+>
+  <YourChart>
+    {/* Chart configuration */}
+  </YourChart>
+</ChartContainer>
+```
+
+#### 4. Loading States
+Include loading states for better UX:
+```tsx
+const [mounted, setMounted] = React.useState(false)
+
+React.useEffect(() => {
+  setMounted(true)
+}, [])
+
+if (!mounted) {
+  return (
+    <div className="h-[250px] w-full animate-pulse rounded-lg bg-muted" />
+  )
+}
+```
+
+#### 5. Responsive Design
+- Use the following padding classes for consistent spacing:
+  ```tsx
+  className="px-4 lg:px-6" // Outer container
+  className="p-6" // Card content
+  ```
+- Use responsive class modifiers:
+  ```tsx
+  className="text-center sm:text-left"
+  className="flex-col sm:flex-row"
+  ```
+
+#### 6. Common UI Components
+Import and use Shadcn UI components:
+```tsx
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+```
+
+### Integration with Dashboard
+
+1. Create your component in `src/components/`
+2. Import and add to the dashboard layout in `src/app/dashboard/page.tsx`:
+```tsx
+import { YourComponent } from "@/components/your-component"
+
+export default function DashboardPage() {
+  return (
+    <div className="grid gap-4 md:gap-8">
+      <AccountSummary />
+      <YourComponent />
+      {/* Other components */}
+    </div>
+  )
+}
+```
+
+### Best Practices
+
+1. **Client Components**: Use "use client" directive for interactive components
+2. **Type Safety**: Use TypeScript interfaces for props and data
+3. **Error Handling**: Include error states and fallbacks
+4. **Accessibility**: Include proper ARIA labels and keyboard navigation
+5. **Performance**: Implement proper loading states and data fetching
+6. **Theming**: Always use theme variables for colors and styling
+7. **Responsiveness**: Test and ensure proper display on all screen sizes
+
+### Example Components
+- See `src/components/performance-chart.tsx` for a complete example of a chart component
+- See `src/components/account-summary.tsx` for a data display component
+- See `src/components/open-positions.tsx` for a table component
+
+### Component Structure
+
+#### 1. Dashboard Components
+All components in the dashboard should follow this structure:
+```tsx
+export function YourComponent() {
+  return (
+    <div className="px-4 lg:px-6">
+      <Card>
+        <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+          <div className="grid flex-1 gap-1 text-center sm:text-left">
+            <CardTitle>Component Title</CardTitle>
+            <CardDescription>Component description</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="p-6">
+          {/* Component content */}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+```
+
+Key points:
+- Outer wrapper with responsive padding: `className="px-4 lg:px-6"`
+- Consistent card header structure with border and padding
+- Card content with uniform padding: `className="p-6"`
+- Responsive text alignment: `text-center sm:text-left`
+
+#### 2. Theme Integration
+- Use Shadcn's theme variables for colors:
+  ```tsx
+  // Correct way to use theme colors
+  stroke="hsl(var(--border))"
+  className="bg-muted"
+  color="hsl(var(--chart-1))"
+  ```
+- Available theme variables:
+  - `--background`
+  - `--foreground`
+  - `--card`
+  - `--card-foreground`
+  - `--popover`
+  - `--muted`
+  - `--muted-foreground`
+  - `--border`
+  - `--input`
+  - `--chart-1` through `--chart-5` (for data visualizations)
+
+#### 3. Chart Components
+When creating chart components:
+```tsx
+const chartConfig = {
+  dataKey1: {
+    label: "Label 1",
+    color: "hsl(221.2 83.2% 53.3%)", // Primary chart color
+  },
+  dataKey2: {
+    label: "Label 2",
+    color: "hsl(212 95% 68%)",  // Secondary chart color
+  },
+} satisfies ChartConfig
+
+// Use ChartContainer for consistent chart styling
+<ChartContainer
+  config={chartConfig}
+  className="aspect-auto h-[250px] w-full"
+>
+  <YourChart>
+    {/* Chart configuration */}
+  </YourChart>
+</ChartContainer>
+```
+
+#### 4. Loading States
+Include loading states for better UX:
+```tsx
+const [mounted, setMounted] = React.useState(false)
+
+React.useEffect(() => {
+  setMounted(true)
+}, [])
+
+if (!mounted) {
+  return (
+    <div className="h-[250px] w-full animate-pulse rounded-lg bg-muted" />
+  )
+}
+```
+
+#### 5. Responsive Design
+- Use the following padding classes for consistent spacing:
+  ```tsx
+  className="px-4 lg:px-6" // Outer container
+  className="p-6" // Card content
+  ```
+- Use responsive class modifiers:
+  ```tsx
+  className="text-center sm:text-left"
+  className="flex-col sm:flex-row"
+  ```
+
+#### 6. Common UI Components
+Import and use Shadcn UI components:
+```tsx
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+```
+
+### Integration with Dashboard
+
+1. Create your component in `src/components/`
+2. Import and add to the dashboard layout in `src/app/dashboard/page.tsx`:
+```tsx
+import { YourComponent } from "@/components/your-component"
+
+export default function DashboardPage() {
+  return (
+    <div className="grid gap-4 md:gap-8">
+      <AccountSummary />
+      <YourComponent />
+      {/* Other components */}
+    </div>
+  )
+}
+```
+
+### Best Practices
+
+1. **Client Components**: Use "use client" directive for interactive components
+2. **Type Safety**: Use TypeScript interfaces for props and data
+3. **Error Handling**: Include error states and fallbacks
+4. **Accessibility**: Include proper ARIA labels and keyboard navigation
+5. **Performance**: Implement proper loading states and data fetching
+6. **Theming**: Always use theme variables for colors and styling
+7. **Responsiveness**: Test and ensure proper display on all screen sizes
+
+### Example Components
+- See `src/components/performance-chart.tsx` for a complete example of a chart component
+- See `src/components/account-summary.tsx` for a data display component
+- See `src/components/open-positions.tsx` for a table component 

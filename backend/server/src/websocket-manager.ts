@@ -116,6 +116,23 @@ export class WebSocketManager {
     });
 
     this.initializeTimers();
+
+    // Register account update handlers
+    this.io.on('accountUpdate', (data: any) => {
+      console.log('Received account update:', data)
+      this.logEvent('←', 'accountUpdate', data)
+      // Always wrap the data in the success format
+      this.notifySubscribers('accountUpdate', { success: true, account: data })
+      this.notifySubscribers('accountInfo', { success: true, account: data })
+    })
+
+    this.io.on('accountInfo', (data: any) => {
+      console.log('Received account info:', data)
+      this.logEvent('←', 'accountInfo', data)
+      // Always wrap the data in the success format
+      this.notifySubscribers('accountInfo', { success: true, account: data })
+      this.notifySubscribers('accountUpdate', { success: true, account: data })
+    })
   }
 
   private emitConnectionStateUpdate(): void {
@@ -170,6 +187,9 @@ export class WebSocketManager {
     
     // Data cleanup interval
     setInterval(() => this.cleanupOldData(), this.config.data.cleanupInterval);
+
+    // Account data update interval (every 5 seconds)
+    setInterval(() => this.fetchAndEmitAccountData(), 5000);
   }
 
   public connectDataWebSocket(): void {
@@ -504,6 +524,40 @@ export class WebSocketManager {
     this.tradingErrorHandler.cleanup();
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
+    }
+  }
+
+  private async fetchAndEmitAccountData(): Promise<void> {
+    try {
+      this.logger.info('Fetching account data...')
+      const response = await fetch(`${this.config.alpaca.trading.url}/v2/account`, {
+        headers: {
+          'APCA-API-KEY-ID': this.config.alpaca.trading.key,
+          'APCA-API-SECRET-KEY': this.config.alpaca.trading.secret
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch account data: ${response.statusText}`);
+      }
+
+      const accountData = await response.json();
+      this.logger.info('Account data fetched:', {
+        unrealized_pl: accountData.unrealized_pl,
+        equity: accountData.equity,
+        last_equity: accountData.last_equity,
+        position_market_value: accountData.position_market_value
+      })
+      
+      // Always emit in the same format
+      const wrappedData = { success: true, account: accountData }
+      this.io.emit('accountUpdate', wrappedData);
+      this.io.emit('accountInfo', wrappedData);
+      
+      this.logger.info('Account updates emitted')
+    } catch (error) {
+      this.logger.error('Error fetching account data:', error);
+      this.io.emit('accountUpdate', { success: false, error: 'Failed to fetch account data' });
     }
   }
 } 
