@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+          cd ../backend
+          npm ci
+          
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+          
+      - name: Build backend
+        run: |
+          cd backend
+          npm run build
+          
+      - name: Deploy to environment
+        env:
+          ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+        run: |
+          echo "Deploying to $ENVIRONMENT environment"
+          # Add your deployment commands here
+          # For example:
+          # - Upload to cloud storage
+          # - Deploy to cloud functions
+          # - Update environment variables 
