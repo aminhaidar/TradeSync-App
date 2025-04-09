@@ -1,53 +1,59 @@
 # Dependencies
 node_modules/
-.pnp/
+**/node_modules/
+.pnp
 .pnp.js
 
 # Testing
 coverage/
 
-# Production
-build/
+# Build outputs
 dist/
+build/
+.next/
 out/
 
-# Misc
-.DS_Store
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment variables
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Misc
+.DS_Store
+*.pem
+Thumbs.db
+desktop.ini
 
-# IDE
+# IDE/Editor
 .idea/
 .vscode/
 *.swp
 *.swo
 
+# Temporary files
+*.log
+logs
+*.tmp
+
+# Project specific
+Archive/
+Archive/**
+
+# Frontend specific
+frontend/.next/
+frontend/out/
+
 # OS generated files
-.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
-Thumbs.db
-
-# next.js
-/.next/
-
-# misc
-*.pem
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts 
+ehthumbs.db 

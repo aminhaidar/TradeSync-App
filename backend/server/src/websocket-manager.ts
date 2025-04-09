@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { WebSocket } from 'ws';
+import WebSocket from 'ws';
 import { 
   AlpacaConfig, 
   AlpacaMessage, 
@@ -15,6 +15,7 @@ import Logger from './utils/logger';
 import { ErrorHandler } from './utils/error-handler';
 import { WebSocketError } from './utils/errors';
 import { DataProcessor } from './utils/data-processor';
+import { Config } from './types/config';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'error';
 
@@ -28,7 +29,7 @@ interface ConnectionMetrics {
 
 export class WebSocketManager {
   private readonly logger: Logger;
-  private readonly config: AlpacaConfig;
+  private readonly config: Config;
   private dataWS: WebSocket | null = null;
   private tradingWS: WebSocket | null = null;
   private subscriptions = new Set<string>();
@@ -58,7 +59,7 @@ export class WebSocketManager {
     reconnectCount: 0
   };
 
-  constructor(private readonly io: Server, config: AlpacaConfig) {
+  constructor(private readonly io: Server, config: Config) {
     this.config = config;
     this.logger = new Logger('WebSocketManager');
     
@@ -197,12 +198,13 @@ export class WebSocketManager {
       this.logger.info('Connecting to Alpaca Data WebSocket...');
       this.updateConnectionState('data', 'connecting');
       
-      if (this.dataWS?.readyState === WebSocket.OPEN) {
+      if (this.dataWS && this.dataWS.readyState === 1) { // 1 = OPEN
         this.logger.warn('Data WebSocket already connected');
         this.updateConnectionState('data', 'connected');
         return;
       }
 
+      this.logger.info('Creating new Data WebSocket connection to:', this.config.alpaca.data.wsUrl);
       this.dataWS = new WebSocket(this.config.alpaca.data.wsUrl);
       
       this.dataWS.on('open', () => {
@@ -221,18 +223,26 @@ export class WebSocketManager {
       });
       
       this.dataWS.on('error', (error: Error) => {
-        this.logger.error('Data WebSocket error:', error);
+        this.logger.error('Data WebSocket error:', {
+          error: error.message,
+          stack: error.stack,
+          url: this.config.alpaca.data.wsUrl
+        });
         this.dataErrorHandler.handleError(error);
         this.updateMetrics('data', 'error');
       });
       
-      this.dataWS.on('close', () => {
-        this.logger.info('Data WebSocket closed');
+      this.dataWS.on('close', (code: number, reason: string) => {
+        this.logger.info('Data WebSocket closed:', { code, reason });
         this.updateConnectionState('data', 'disconnected');
         this.dataErrorHandler.handleDisconnect();
       });
     } catch (error) {
-      this.logger.error('Error connecting to Data WebSocket:', error);
+      this.logger.error('Error connecting to Data WebSocket:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        url: this.config.alpaca.data.wsUrl
+      });
       this.dataErrorHandler.handleError(error);
     }
   }
@@ -242,12 +252,13 @@ export class WebSocketManager {
       this.logger.info('Connecting to Alpaca Trading WebSocket...');
       this.updateConnectionState('trading', 'connecting');
       
-      if (this.tradingWS?.readyState === WebSocket.OPEN) {
+      if (this.tradingWS && this.tradingWS.readyState === 1) { // 1 = OPEN
         this.logger.warn('Trading WebSocket already connected');
         this.updateConnectionState('trading', 'connected');
         return;
       }
 
+      this.logger.info('Creating new Trading WebSocket connection to:', this.config.alpaca.trading.wsUrl);
       this.tradingWS = new WebSocket(this.config.alpaca.trading.wsUrl);
       
       this.tradingWS.on('open', () => {
@@ -266,44 +277,78 @@ export class WebSocketManager {
       });
       
       this.tradingWS.on('error', (error: Error) => {
-        this.logger.error('Trading WebSocket error:', error);
+        this.logger.error('Trading WebSocket error:', {
+          error: error.message,
+          stack: error.stack,
+          url: this.config.alpaca.trading.wsUrl
+        });
         this.tradingErrorHandler.handleError(error);
         this.updateMetrics('trading', 'error');
       });
       
-      this.tradingWS.on('close', () => {
-        this.logger.info('Trading WebSocket closed');
+      this.tradingWS.on('close', (code: number, reason: string) => {
+        this.logger.info('Trading WebSocket closed:', { code, reason });
         this.updateConnectionState('trading', 'disconnected');
         this.tradingErrorHandler.handleDisconnect();
       });
     } catch (error) {
-      this.logger.error('Error connecting to Trading WebSocket:', error);
+      this.logger.error('Error connecting to Trading WebSocket:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        url: this.config.alpaca.trading.wsUrl
+      });
       this.tradingErrorHandler.handleError(error);
     }
   }
 
   private authenticateDataStream(): void {
-    if (!this.dataWS) return;
-    
-    const authMessage = {
-      action: 'auth',
-      key: this.config.alpaca.data.key,
-      secret: this.config.alpaca.data.secret
-    };
-    
-    this.dataWS.send(JSON.stringify(authMessage));
+    try {
+      if (!this.dataWS || this.dataWS.readyState !== 1) { // 1 = OPEN
+        this.logger.error('Cannot authenticate: Data WebSocket not connected');
+        return;
+      }
+
+      const authMessage = {
+        action: 'auth',
+        key: this.config.alpaca.data.key,
+        secret: this.config.alpaca.data.secret
+      };
+
+      this.logger.info('Authenticating Data WebSocket with API key:', this.config.alpaca.data.key);
+      this.dataWS.send(JSON.stringify(authMessage));
+    } catch (error) {
+      this.logger.error('Error authenticating Data WebSocket:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      this.dataErrorHandler.handleError(error);
+    }
   }
 
   private authenticateTradingStream(): void {
-    if (!this.tradingWS) return;
-    
-    const authMessage = {
-      action: 'auth',
-      key: this.config.alpaca.trading.key,
-      secret: this.config.alpaca.trading.secret
-    };
-    
-    this.tradingWS.send(JSON.stringify(authMessage));
+    try {
+      if (!this.tradingWS || this.tradingWS.readyState !== 1) { // 1 = OPEN
+        this.logger.error('Cannot authenticate: Trading WebSocket not connected');
+        return;
+      }
+
+      const authMessage = {
+        action: 'authenticate',
+        data: {
+          key_id: this.config.alpaca.trading.key,
+          secret_key: this.config.alpaca.trading.secret
+        }
+      };
+
+      this.logger.info('Authenticating Trading WebSocket with API key:', this.config.alpaca.trading.key);
+      this.tradingWS.send(JSON.stringify(authMessage));
+    } catch (error) {
+      this.logger.error('Error authenticating Trading WebSocket:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      this.tradingErrorHandler.handleError(error);
+    }
   }
 
   private isAlpacaMessage(message: unknown): message is AlpacaMessage {
@@ -559,5 +604,13 @@ export class WebSocketManager {
       this.logger.error('Error fetching account data:', error);
       this.io.emit('accountUpdate', { success: false, error: 'Failed to fetch account data' });
     }
+  }
+
+  private logEvent(direction: '←' | '→', event: string, data: any): void {
+    this.logger.info(`${direction} ${event}`, data);
+  }
+
+  private notifySubscribers(event: string, data: any): void {
+    this.io.emit(event, data);
   }
 } 

@@ -1,5 +1,5 @@
 import Alpaca from '@alpacahq/alpaca-trade-api';
-import { config } from '../types/config';
+import config from '../config';
 import Logger from '../utils/logger';
 
 const logger = new Logger('PositionsService');
@@ -37,9 +37,10 @@ class PositionsService {
     try {
       const positions = await this.alpaca.getPositions() as AlpacaPosition[];
       return positions;
-    } catch (error) {
-      logger.error('Error fetching positions:', error);
-      throw error;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      logger.error('Error fetching positions:', errorMessage);
+      throw new Error(`Failed to fetch positions: ${errorMessage}`);
     }
   }
 }

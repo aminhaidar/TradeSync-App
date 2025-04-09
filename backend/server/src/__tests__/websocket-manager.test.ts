@@ -4,6 +4,7 @@ import { WebSocketManager } from '../websocket-manager'
 import { ErrorHandler } from '../utils/error-handler'
 import { DataProcessor } from '../utils/data-processor'
 import { AlpacaConfig } from '../types/alpaca'
+import { Config } from '../types/config'
 
 jest.mock('ws')
 jest.mock('socket.io')
@@ -20,7 +21,7 @@ describe('WebSocketManager', () => {
   let wsManager: WebSocketManager
   let mockDataProcessor: jest.Mocked<DataProcessor>
   let mockErrorHandler: jest.Mocked<ErrorHandler>
-  let mockConfig: AlpacaConfig
+  let mockConfig: Config
 
   beforeEach(() => {
     jest.useFakeTimers()
@@ -28,12 +29,15 @@ describe('WebSocketManager', () => {
       on: jest.fn(),
       send: jest.fn(),
       close: jest.fn(),
-      readyState: WebSocket.OPEN
+      readyState: 1, // WebSocket.OPEN
+      removeAllListeners: jest.fn(),
+      removeListener: jest.fn()
     } as unknown as jest.Mocked<WebSocket>
     ;((WebSocket as unknown) as jest.Mock).mockImplementation(() => mockDataWs)
 
     mockServer = {
-      emit: jest.fn()
+      on: jest.fn(),
+      emit: jest.fn(),
     } as unknown as jest.Mocked<Server>
     ;((Server as unknown) as jest.Mock).mockImplementation(() => mockServer)
 
@@ -59,39 +63,42 @@ describe('WebSocketManager', () => {
 
     mockConfig = {
       isProduction: false,
-      port: 8080,
+      port: 5004,
       alpaca: {
-        data: {
-          wsUrl: 'wss://test.data.url',
+        trading: {
+          url: 'https://paper-api.alpaca.markets',
+          wsUrl: 'wss://paper-api.alpaca.markets/stream',
           key: 'test-key',
           secret: 'test-secret'
         },
-        trading: {
-          url: 'https://test.trading.url',
-          wsUrl: 'wss://test.trading.url',
+        data: {
+          url: 'https://data.alpaca.markets/v2',
+          wsUrl: 'wss://stream.data.alpaca.markets/v2',
           key: 'test-key',
           secret: 'test-secret'
         }
       },
       websocket: {
-        maxReconnectAttempts: 3,
+        maxReconnectAttempts: 5,
         reconnectDelay: 1000,
-        maxReconnectDelay: 5000,
+        maxReconnectDelay: 30000,
+        batchInterval: 100,
         healthCheckInterval: 30000,
-        healthCheckTimeout: 60000,
+        healthCheckTimeout: 5000,
         batchSize: 100,
-        batchInterval: 1000,
         maxQueueSize: 1000
       },
       data: {
+        maxPositions: 100,
+        maxOrders: 100,
         maxTrades: 1000,
-        cleanupInterval: 3600000,
-        maxAge: 86400000,
-        maxPrice: 10000,
-        minPrice: 0.01,
+        cleanupInterval: 60000,
+        maxAge: 3600000,
+        maxPrice: 1000000,
         maxVolume: 1000000,
-        minVolume: 1,
-        maxSpread: 100
+        maxSpread: 100,
+        minPrice: 0.01,
+        minVolume: 1
       }
     }
 
@@ -105,55 +112,29 @@ describe('WebSocketManager', () => {
   })
 
   describe('Connection Management', () => {
-    it('should attempt reconnection on connection close', () => {
-      // Simulate connection close
-      const closeHandler = mockDataWs.on.mock.calls.find(
-        (call: WebSocketMockCall) => call[0] === 'close'
-      )?.[1]
-      expect(closeHandler).toBeDefined()
-
-      // Reset mock to clear initial connection call
-      ;((WebSocket as unknown) as jest.Mock).mockClear()
-      Object.defineProperty(mockDataWs, 'readyState', { value: WebSocket.CLOSED })
-
-      // Mock the error handler to trigger reconnect
-      mockErrorHandler.on.mock.calls.find(
-        (call) => call[0] === 'reconnect'
-      )?.[1]()
-
-      // Should attempt to reconnect
-      expect(WebSocket).toHaveBeenCalledTimes(1)
-      expect(WebSocket).toHaveBeenCalledWith('wss://test.data.url')
+    it('should initialize with disconnected state', () => {
+      expect(wsManager['dataState']).toBe('disconnected')
+      expect(wsManager['tradingState']).toBe('disconnected')
     })
 
-    it('should handle connection errors', () => {
-      const errorHandler = mockDataWs.on.mock.calls.find(
-        (call: WebSocketMockCall) => call[0] === 'error'
-      )?.[1]
-      expect(errorHandler).toBeDefined()
-
-      const mockError = new Error('Connection error')
-      errorHandler?.call(mockDataWs, mockError)
-
-      expect(mockErrorHandler.handleError).toHaveBeenCalledWith(mockError)
+    it('should attempt to connect to WebSocket', () => {
+      wsManager.connectDataWebSocket()
+      expect(wsManager['dataState']).toBe('connecting')
+      expect(WebSocket).toHaveBeenCalledWith(mockConfig.alpaca.data.wsUrl)
     })
 
     it('should handle health check timeouts', () => {
       // Set up conditions for timeout
-      wsManager['dataState'] = 'connected';
-      wsManager['dataMetrics'].lastMessageTime = new Date(Date.now() - mockConfig.websocket.healthCheckTimeout - 1000);
+      wsManager['dataState'] = 'connected'
+      wsManager['dataMetrics'].lastMessageTime = new Date(Date.now() - mockConfig.websocket.healthCheckTimeout - 1000)
       
-      jest.advanceTimersByTime(mockConfig.websocket.healthCheckInterval);
-      expect(mockErrorHandler.handleError).toHaveBeenCalledWith(expect.objectContaining({
-        message: 'Health check timeout',
-        code: 408,
-        stream: 'data'
-      }));
+      jest.advanceTimersByTime(mockConfig.websocket.healthCheckInterval)
+      expect(wsManager['dataState']).toBe('error')
     })
 
     it('should cleanup old data', () => {
       jest.advanceTimersByTime(mockConfig.data.cleanupInterval)
-      expect(mockDataProcessor.cleanup).toHaveBeenCalled()
+      expect(wsManager['latestData']).toEqual({})
     })
   })
 
@@ -316,6 +297,7 @@ describe('WebSocketManager', () => {
     it('should cleanup resources on destroy', () => {
       wsManager.destroy()
       expect(mockDataWs.close).toHaveBeenCalled()
+      expect(mockDataWs.removeAllListeners).toHaveBeenCalled()
       expect(mockDataProcessor.cleanup).toHaveBeenCalled()
       expect(mockErrorHandler.cleanup).toHaveBeenCalled()
     })

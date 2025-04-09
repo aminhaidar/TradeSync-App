@@ -3,11 +3,12 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { WebSocketManager } from './websocket-manager';
 import Logger from './utils/logger';
-import { config } from './types/config';
+import config from './config';
 import { positionsService } from './services/positions';
 import cors from 'cors';
 import { TradeService } from './services/trade'
 import axios from 'axios';
+import accountRoutes from './routes/account-routes';
 
 const logger = new Logger('Server');
 
@@ -24,7 +25,7 @@ async function startServer() {
 
     // Add CORS middleware
     app.use(cors({
-      origin: 'http://localhost:3000',
+      origin: ['http://localhost:3000', 'http://localhost:5004'],
       methods: ['GET', 'POST', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
       credentials: true
@@ -37,6 +38,15 @@ async function startServer() {
     const tradeService = new TradeService(io)
     const wsManager = new WebSocketManager(io, config)
     logger.info('Services initialized')
+
+    // Use routes
+    app.use('/api', accountRoutes);
+
+    // API routes middleware
+    app.use('/api', (req, res, next) => {
+      logger.info(`API request: ${req.method} ${req.path}`);
+      next();
+    });
 
     // Test Alpaca connection endpoint
     app.get('/api/test/alpaca', async (req, res) => {
@@ -51,26 +61,14 @@ async function startServer() {
             'APCA-API-SECRET-KEY': config.alpaca.trading.secret
           }
         });
-        logger.info('Alpaca connection successful:', { data: response.data });
-        res.json({ success: true, account: response.data });
-      } catch (error) {
+        
+        logger.info('Alpaca connection successful:', response.data);
+        res.json({ success: true, data: response.data });
+      } catch (error: unknown) {
         logger.error('Alpaca connection failed:', error);
-        if (axios.isAxiosError(error)) {
-          logger.error('Axios error details:', {
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            data: error.response?.data,
-            headers: error.response?.headers
-          });
-        }
-        res.status(500).json({ success: false, error: 'Failed to connect to Alpaca' });
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        res.status(500).json({ success: false, error: errorMessage });
       }
-    });
-
-    // API routes
-    app.use('/api', (req, res, next) => {
-      logger.info(`API request: ${req.method} ${req.path}`);
-      next();
     });
 
     // Positions endpoint
@@ -230,9 +228,9 @@ async function startServer() {
     wsManager.connectDataWebSocket();
     wsManager.connectTradingWebSocket();
 
-    const port = process.env.PORT || 5003;
-    httpServer.listen(port, () => {
-      logger.info(`Server is running on port ${port}`);
+    // Start the server
+    httpServer.listen(config.port, () => {
+      logger.info(`Server listening on port ${config.port}`);
     });
 
     // Handle process termination
@@ -274,8 +272,9 @@ async function startServer() {
       });
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error('Failed to start server:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     process.exit(1);
   }
 }

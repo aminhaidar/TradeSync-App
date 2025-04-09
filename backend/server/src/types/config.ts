@@ -23,6 +23,7 @@ export interface WebSocketConfig {
   maxReconnectDelay: number;
   batchInterval: number;
   healthCheckInterval: number;
+  healthCheckTimeout: number;
   batchSize: number;
   maxQueueSize: number;
 }
@@ -32,6 +33,7 @@ export interface DataConfig {
   maxOrders: number;
   maxTrades: number;
   cleanupInterval: number;
+  maxAge: number;
   maxPrice: number;
   maxVolume: number;
   maxSpread: number;
@@ -52,13 +54,13 @@ export const config: Config = {
   port: parseInt(process.env.PORT || '5004', 10),
   alpaca: {
     trading: {
-      url: process.env.ALPACA_API_URL || 'https://paper-api.alpaca.markets',
+      url: process.env.ALPACA_TRADING_URL || 'https://paper-api.alpaca.markets',
       wsUrl: process.env.ALPACA_TRADING_WS_URL || 'wss://paper-api.alpaca.markets/stream',
       key: process.env.ALPACA_API_KEY || '',
       secret: process.env.ALPACA_API_SECRET || ''
     },
     data: {
-      url: process.env.ALPACA_DATA_URL || 'https://data.alpaca.markets',
+      url: 'https://data.alpaca.markets',
       wsUrl: process.env.ALPACA_DATA_WS_URL || 'wss://stream.data.alpaca.markets/v2/iex',
       key: process.env.ALPACA_API_KEY || '',
       secret: process.env.ALPACA_API_SECRET || ''
@@ -70,18 +72,20 @@ export const config: Config = {
     maxReconnectDelay: parseInt(process.env.WS_MAX_RECONNECT_DELAY || '5000', 10),
     batchInterval: parseInt(process.env.WS_BATCH_INTERVAL || '1000', 10),
     healthCheckInterval: parseInt(process.env.WS_HEALTH_CHECK_INTERVAL || '30000', 10),
+    healthCheckTimeout: parseInt(process.env.WS_HEALTH_CHECK_TIMEOUT || '5000', 10),
     batchSize: parseInt(process.env.WS_BATCH_SIZE || '100', 10),
     maxQueueSize: parseInt(process.env.WS_MAX_QUEUE_SIZE || '1000', 10)
   },
   data: {
     maxPositions: 100,
     maxOrders: 100,
-    maxTrades: 1000,
-    cleanupInterval: 3600000, // 1 hour
-    maxPrice: 1000000,
-    maxVolume: 1000000,
-    maxSpread: 0.1,
-    minPrice: 0.01,
-    minVolume: 1
+    maxTrades: parseInt(process.env.DATA_MAX_TRADES || '1000', 10),
+    cleanupInterval: parseInt(process.env.DATA_CLEANUP_INTERVAL || '3600000', 10),
+    maxAge: parseInt(process.env.DATA_MAX_AGE || '86400000', 10),
+    maxPrice: parseFloat(process.env.DATA_MAX_PRICE || '1000000'),
+    maxVolume: parseFloat(process.env.DATA_MAX_VOLUME || '1000000'),
+    maxSpread: parseFloat(process.env.DATA_MAX_SPREAD || '100'),
+    minPrice: parseFloat(process.env.DATA_MIN_PRICE || '0.01'),
+    minVolume: parseFloat(process.env.DATA_MIN_VOLUME || '1')
   }
 }; 

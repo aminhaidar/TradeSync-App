@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { WebSocketManager } from './websocket-manager';
 import { AlpacaConfig } from './types/alpaca';
 import dotenv from 'dotenv';
-import { WebSocketError } from './utils/error-handler';
+import { WebSocketError } from './utils/errors';
 
 // Load environment variables
 dotenv.config();
