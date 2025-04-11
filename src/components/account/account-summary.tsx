@@ -317,7 +317,7 @@ export function AccountSummary() {
         {/* Performance Card */}
         <Card className={cardClass}>
           <CardHeader className={`${titleContainerClass} pb-1`}>
-            <CardDescription>Performance</CardDescription>
+            <CardDescription>Performance YTD</CardDescription>
             <div className="h-9 relative">
               {isLoading ? (
                 <Skeleton className="h-8 w-32" />
